@@ -1230,6 +1230,85 @@ VAR BandMapEntryRecord: BandMapEntryPointer;
 
 
 
+FUNCTION BandMapEntryDisplayColor (MinutesLeft: BYTE; DoBlink: INTEGER): INTEGER;
+
+    BEGIN
+    IF MinutesLeft > (BandMapDecayTime * 0.96) THEN
+        BandMapEntryDisplayColor := White + DoBlink
+    ELSE
+        IF MinutesLeft > (BandMapDecayTime * 0.83) THEN
+            BandMapEntryDisplayColor := Yellow + DoBlink
+        ELSE
+            IF MinutesLeft > (BandMapDecayTime * 0.5) THEN
+                BandMapEntryDisplayColor := LightBlue + DoBlink
+            ELSE
+                BandMapEntryDisplayColor := Blue + DoBlink;
+    END;
+
+PROCEDURE FormatBandMapDisplayEntry (Entry: BandMapEntryPointer;
+                                     VAR PrefixText: STRING;
+                                     VAR CallText: STRING;
+                                     VAR FreqText: STRING);
+
+VAR BandMapCall: CallString;
+
+    BEGIN
+    PrefixText := '';
+    CallText := '';
+    FreqText := '';
+
+    WITH Entry^ DO
+        BEGIN
+        BandMapCall := BandMapExpandedString (Call);
+        Delete (BandMapCall, 8, 12);
+        WHILE (Length (BandMapCall) < 7) DO
+            BandMapCall := BandMapCall + ' ';
+
+        Str (Frequency, FreqText);
+        Delete (FreqText, Length (FreqText) - 1, 2);
+        Insert ('.', FreqText, Length (FreqText));
+
+        IF QSXOffset = 0 THEN
+            BEGIN
+            IF ((StatusByte AND $40) <> 0) AND BandMapDupeDisplay THEN
+                PrefixText := ' *'
+            ELSE
+                IF (StatusByte AND $80) <> 0 THEN
+                    PrefixText := ' m'
+                ELSE
+                    PrefixText := '  ';
+            END
+        ELSE
+            BEGIN
+            IF ((StatusByte AND $40) <> 0) AND BandMapDupeDisplay THEN
+                PrefixText := 'x*'
+            ELSE
+                IF (StatusByte AND $80) <> 0 THEN
+                    PrefixText := 'xm'
+                ELSE
+                    PrefixText := 'x ';
+            END;
+
+        CallText := BandMapCall;
+        END;
+    END;
+
+PROCEDURE WriteBandMapDisplayEntry (Entry: BandMapEntryPointer; DoBlink: INTEGER);
+
+VAR PrefixText, CallText, FreqText: STRING;
+    MinutesLeft: BYTE;
+
+    BEGIN
+    MinutesLeft := Entry^.StatusByte AND $3F;
+    FormatBandMapDisplayEntry (Entry, PrefixText, CallText, FreqText);
+
+    TextColor (White + DoBlink);
+    Write (FreqText, PrefixText);
+
+    TextColor (BandMapEntryDisplayColor (MinutesLeft, DoBlink));
+    Write (CallText);
+    END;
+
 PROCEDURE BandMapClass.Display;
 
 VAR StartBand, StopBand: BandType;
@@ -1240,6 +1319,7 @@ VAR StartBand, StopBand: BandType;
     LastDisplayableCursor, DummyEntryNumber: INTEGER;
     WindowCall, Call: CallString;
     FreqString: Str20;
+    PrefixText, CallText: STRING;
     DoBlink: INTEGER;
     Band: BandType;
     Mode: ModeType;
@@ -1499,15 +1579,6 @@ VAR StartBand, StopBand: BandType;
 
                        MinutesLeft := StatusByte AND $3F;
 
-                       IF MinutesLeft > (BandMapDecayTime * 0.96) THEN TextColor (White + DoBlink) ELSE
-                           IF MinutesLeft > (BandMapDecayTime * 0.83) THEN TextColor (Yellow + DoBlink) ELSE
-                               IF MinutesLeft > (BandMapDecayTime * 0.5) THEN TextColor (LightBlue + DoBlink) ELSE
-                                   TextColor (Blue + DoBlink);
-
-                       Str (Frequency, FreqString);
-                       Delete (FreqString, Length (FreqString) - 1, 2);
-                       Insert ('.', FreqString, Length (FreqString));
-
                        {KK1L: 6.64, but only if in the range we want to display}
                        {KK1L: 6.73 Added AND DisplayBandMapEnable}
                        IF (CurrentCursor >= FirstDisplayableBandMapcursor) AND
@@ -1515,49 +1586,8 @@ VAR StartBand, StopBand: BandType;
                           (DisplayBandMapEnable) THEN
                          BEGIN
                          GoToProperXY (NumberEntriesDisplayed, NumberBandMapRows, 5); {KK1L: 6.65 Moved here from earlier}
-                         IF QSXOffset = 0 THEN
-                             BEGIN
-                             {KK1L: 6.64 check dupe display status before adding *}
-                             {KK1L: 6.65 Moved Inc to inside because now all entries are processed}
-                             IF ((StatusByte AND $40) <> 0) AND BandMapDupeDisplay THEN
-                                 BEGIN
-                                 Write (FreqString, ' *', BandMapCall);
-                                 Inc (NumberEntriesDisplayed);
-                                 END
-                             ELSE
-                                 IF (StatusByte AND $80) <> 0 THEN
-                                     BEGIN
-                                     Write (FreqString, ' m', BandMapCall);
-                                     Inc (NumberEntriesDisplayed);
-                                     END
-                                 ELSE IF (StatusByte AND $40 = 0) THEN  {KK1L: 6.65 Added IF}
-                                     BEGIN
-                                     Write (FreqString, '  ', BandMapCall);
-                                     Inc (NumberEntriesDisplayed);
-                                     END;
-                             END
-                         ELSE
-                             BEGIN
-                             {KK1L: 6.64 check dupe display status before adding x*}
-                             {KK1L: 6.65 Moved Inc to inside because now all entries are processed}
-                             IF ((StatusByte AND $40) <> 0) AND BandMapDupeDisplay THEN
-                                 BEGIN
-                                 Write (FreqString, 'x*', BandMapCall);
-                                 Inc (NumberEntriesDisplayed);
-                                 END
-                             ELSE
-                                 IF (StatusByte AND $80) <> 0 THEN
-                                     BEGIN
-                                     Write (FreqString, 'xm', BandMapCall);
-                                     Inc (NumberEntriesDisplayed);
-                                     END
-                                 ELSE IF (StatusByte AND $40 = 0) THEN  {KK1L: 6.65 Added IF}
-                                     BEGIN
-                                     Write (FreqString, 'x ', BandMapCall);
-                                     Inc (NumberEntriesDisplayed);
-                                     END;
-
-                             END;
+                         WriteBandMapDisplayEntry (BandMapEntryRecord, DoBlink);
+                         Inc (NumberEntriesDisplayed);
                          END;
                        END;
 
